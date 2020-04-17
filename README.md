@@ -3,6 +3,26 @@
 ## Goals
 
 - Master `cfMesh` workflow
+- Get familiarized with some OpenFOAM mesh manipulation tools
+
+## Table of Contents
+
+* [Goals](#goals)
+* [Table of Contents](#table-of-contents)
+* [Basic-level skills](#basic-level-skills)
+   * [Basic cfMesh usage](#basic-cfmesh-usage)
+      * [Preparing a sample geometry file](#preparing-a-sample-geometry-file)
+      * [Surface Quality](#surface-quality)
+      * [cartesian2DMesh workflow](#cartesian2dmesh-workflow)
+   * [More Meshing utilties](#more-meshing-utilties)
+* [Intermediate skills](#intermediate-skills)
+   * [Boundary Patches](#boundary-patches)
+* [Advanced skills](#advanced-skills)
+   * [cfMesh workflow control](#cfmesh-workflow-control)
+   * [cfMesh Refinement settings](#cfmesh-refinement-settings)
+      * [i) Boundary cell size](#i-boundary-cell-size)
+      * [ii) Local refinement](#ii-local-refinement)
+      * [iii) Volume-based refinements](#iii-volume-based-refinements)
 
 ## Basic-level skills
 
@@ -202,7 +222,7 @@ facet normal 0 0 -1
      vertex 0.282 51.506 -2.5
      vertex 0.586 51.524 -2.5
    endloop
-endfacet
+ezndfacet
 ```
 So, a simple text-editor command (or just use: `sed`) could look for the normals 
 we want to delete, and delete the whole facet block (which always spans over 7 lines).
@@ -302,6 +322,56 @@ unconnected regions (isolated pores).
 - Compare the result to the 0.4 we specified for the PNG image earlier.
 
 ![Porous medium Mesh in OpenFOAM](images/porous-mesh.png)
+
+### More Meshing utilties
+
+Let's build a description table for all meshing utilties we have access to 
+(in Foam-Extend at least):
+
+```bash
+#!/bin/bash
+
+# Find all Cpp files with path containing utilityName/utilityName.C 
+# (This is a single line)
+mesh_utils=$(find $FOAM_APP/utilities/mesh -regextype posix-extended -regex
+".*(.*)\/\1.C")
+
+# For each utility, display name and description
+for ut in $mesh_utils
+do
+    echo "$(basename -s ".C" -- $ut):"
+    sed -n '/Description/,/^$/p' $ut | sed '/Description/d'
+done
+```
+
+The first lines of its output should look like (There are some cfMesh
+utilities in there; these are not official OpenFOAM tools):
+```bash
+tetDecomposition:
+    Decompose a given polyhedral mesh using tetDecomposition.
+
+checkMesh:
+    Checks validity of a mesh
+
+zipUpMesh:
+    Reads in a mesh with hanging vertices and zips up the cells to
+	guarantee that all polyhedral cells of valid shape are closed.
+
+cellSet:
+    Selects a cell set through a dictionary.
+
+setsToZones:
+    Add pointZones/faceZones/cellZones to the mesh from
+	similar named pointSets/faceSets/cellSets.
+
+....
+```
+
+To figure out the general purpose of each utility:
+
+```bash
+(rem) > ls $FOAM_APP/utilties/mesh/*
+```
 
 ## Intermediate skills
 
@@ -480,3 +550,88 @@ workflowControls {
 3. `cfMesh` has 8 workflow controls; try each one separately to get a feel for
    what's happening thoughout the meshing process (Hint: Refer to cfMesh user
    guide).
+
+> `cfMesh` doesn't really show available options when an invalid one is passed.
+> Unlike official OpenFOAM tools and solvers, it either continue working with
+> a default value or throws an error and exists. Hence, making the user guide the first
+> resource you should attempt to use.
+
+### cfMesh Refinement settings
+
+One of the first things `cfMesh` workflows do is to figure out the general
+refinement level of the requested mesh:
+```bash
+Requested cell size corresponds to octree level 5
+```
+
+And there is an auto-refinement step which takes care of applying the `minCellSize`
+setting:
+```bash
+Performing automatic refinement
+Requested min cell size corresponds to octree level 10
+```
+
+This section discusses the different refinement concepts implemented in `cfMesh`.
+
+#### i) Boundary cell size
+
+You can explicitely control the boundary cell size (independent from `minCellSize`)
+with:
+
+```cpp
+// Assuming minCellSize = 0.5 for example
+// Set size near boundary patches
+boundaryCellSize   0.7;
+
+// Apply the boundary size for this distance away from the patch:
+boundaryCellSizeRefinementThickness  5;
+```
+
+4. Add similar values to your `meshDict` and rerun the meshing process. Compare
+   mesh quality and cells count with the previous basic mesh.
+
+> For the sample run I performed; the `boundaryCellSize` helped reduce the
+> max non-orthogonality to 32 degrees and increased cells count to around 62000.
+
+Of course, altering the mesh will certainly alter boundary information, that's
+why fixing boundary patches is the **last** operation you should attempt.
+
+#### ii) Local refinement
+
+Refining the whole `boundary` perimeter may not be desired; instead, more frequently,
+we find ourselves in need of refining around some specific boundary patches (or geometry
+subsets).
+
+The STL we used had no subsets, so we won't be able to try it but we'll show the concept:
+
+```cpp
+localRefinement
+{
+	grains // OpenFOAM patch name
+	{
+		// 1 Extra refinement level to maxCellSize (level 5 in our example run)
+		additionalRefinementLevels 1;
+		refinementThickness 5;
+	}
+
+	// Or, if the geometry file has some subset "grains" defined
+    grains
+    {
+		// cellSize around subset faces
+  		cellSize   0.7;
+	}
+}
+```
+
+#### iii) Volume-based refinements
+
+The previous two refinement methods where surface-based. The object-based refinement
+takes care of refining volume region. The region to be refined is selected using an
+"object" (box, cone, hollowCone, sphere, line, ... etc)
+
+5. Refer to cfMesh User Guide to refine a box of your choice with 1 additional refinement
+   level (Hint: Look for `objectRefinement` dictionary).
+
+> If regular geometries are not enough for your purposes, you can either use
+> `surfaceMeshRefinement` and/or `edgeMeshRefinement` to refine inside regions
+> defined by arbitrary surface (or edgeMesh) files.
