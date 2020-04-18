@@ -4,6 +4,7 @@
 
 - Master `cfMesh` workflow
 - Get familiarized with some OpenFOAM mesh manipulation tools
+- Become efficient in preparing meshes for pore-scale simulations (for Reservoir Engineering practitioners)
 
 ## Table of Contents
 
